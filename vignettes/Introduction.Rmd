@@ -3,6 +3,7 @@ title: "Introduction to the NanoStringGeomxSet Class"
 author: "David Henderson, Patrick Aboyoun, Nicole Ortogero, Zhi Yang, Jason Reeves, Kara Gorman, Rona Vitancol, Thomas Smith, Maddy Griswold"
 date: "`r Sys.Date()`"
 output: rmarkdown::html_vignette
+toc: TRUE
 vignette: >
   %\VignetteIndexEntry{Introduction to the NanoStringGeomxSet Class}
   %\VignetteEngine{knitr::rmarkdown}
@@ -19,7 +20,7 @@ knitr::opts_chunk$set(
 )
 ```
 
-## Introduction
+# Introduction
 
 The NanoStringGeomxSet was inherited from Biobase's ExpressionSet class. The NanoStringGeomxSet class was designed to encapsulate data and corresponding methods for NanoString DCC files generated from the NanoString GeoMx 
 Digital Spatial Profiling (DSP) platform.
@@ -83,6 +84,174 @@ dimLabels( demoData )
 dimLabels( demoData )[2] <- "Sample ID"
 dimLabels( demoData )
 ```
+
+# Quality Control
+GeomxTool offers two ways to flag samples and probes with low reads. 
+1. First is to flag Area of Interests (AOIs) that have low counts 
+1. Second is to flag probes that have low counts and low ratio
+1. Flag low and high outliers probe outliers
+
+```{r}
+#Call SetQCFlags
+#demoData <- SetQCFlags(demoData)
+#AOIQCFlags <- protocolData(demoData)[["QCFlags"]]
+#AOIQCFlags[1:5, 1:5]
+#ProbeQCFlags <- fData(object)[["QCFlags"]]
+#ProbeQCFlags[1:5, 1:5]
+```
+
+# Collapse
+After running SetQCFlags to flag low counts AOIs and probe, we then collapse the data to targets. 
+
+# Normalization
+Normalization is performed to make accurate comparisons of gene expression between samples and to remove technical effects. GeomxTools offers the following ways to normalizae the counts:
+
+## 1. Quantile Normalization Method
+
+Step 1: Calculate the quantile expression for each sample across all targets
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+library(dplyr)
+library(kableExtra)
+
+## RV: To be removed when package is installed
+ngeoMean <- function(v) {
+    v[v == 0] <- 1
+    return(EnvStats::geoMean(v, na.rm = TRUE))
+}
+
+dt <- exprs(demoData[1:3, 1:3])
+normTable <- data.frame(
+  rbind(dt, 
+  Quantile = c(as.character(paste("quantile", "(",paste(dt[1,1], dt[2,1], dt[3,1], sep=","),", prob=.75", ")")),
+            as.character(paste("quantile", "(",paste(dt[1,2], dt[2,2], dt[3,2], sep=","),", prob=.75", ")")),
+           as.character(paste("quantile", "(",paste(dt[1,3], dt[2,3], dt[3,3], sep=","),", prob=.75", ")"))
+)
+))
+  kable(normTable, escape = F, align = c("c", "l", "l")) %>%
+  kable_styling(full_width = F)
+
+```
+
+Step 2: Calculate the geometric mean computed quantiles across all samples
+
+
+```{r, echo = FALSE}
+quantiles <- apply(dt, 2, function(x) quantile(x,.75))
+normTable <- data.frame(
+  rbind(normTable, QuantileResult = quantiles
+  ))
+  kable(normTable, escape = F, align = c("c", "l", "l")) %>%
+  kable_styling(full_width = F)
+  
+```  
+
+Step 3. Calculate the Geometric Mean of all quantiles across all samples
+
+```{r, message=FALSE, warning=FALSE, echo = FALSE}
+ngeoMean(quantiles)
+```
+
+Step 4. Get the ratio of each QuantileResult and the computed geomean for each sample. This is the quantile normalization factor. 
+
+```{r, echo = FALSE}
+normFactors = quantiles/ngeoMean(quantiles)
+normTable <- data.frame(
+  rbind(normTable, 
+  NormFactors = normFactors
+)) 
+  kable(normTable, escape = F, align = c("c", "l", "l")) %>%
+  kable_styling(full_width = F)   
+
+```   
+Step 5. Multiply each count to the computed sample quantile normalization factor
+Raw Counts
+
+```{r, echo = FALSE}
+  kable(dt, escape = F, align = c("c", "l", "l")) %>%
+  kable_styling(full_width = F)  
+```
+
+Normalized Counts
+
+```{r, echo = FALSE}
+normTable <- data.frame(cbind(dt, 
+normSample1 = c(paste(dt[1,1], "*", normFactors[1], "=", dt[1,1]*normFactors[1]), 
+                paste(dt[2,1], "*", normFactors[1], "=", dt[2,1]*normFactors[1]),
+                paste(dt[3,1], "*", normFactors[1], "=", dt[3,1]*normFactors[1])), 
+normSample2 = c(paste(dt[1,2], "*", normFactors[2], "=", dt[1,2]*normFactors[2]), 
+                paste(dt[2,2], "*", normFactors[2], "=", dt[2,2]*normFactors[2]),
+                paste(dt[3,2], "*", normFactors[2], "=", dt[3,2]*normFactors[2])),
+normSample3 = c(paste(dt[1,3], "*", normFactors[3], "=", dt[1,3]*normFactors[3]), 
+                paste(dt[2,3], "*", normFactors[3], "=", dt[2,3]*normFactors[3]),
+                paste(dt[3,3], "*", normFactors[3], "=", dt[3,3]*normFactors[3]))
+         
+))
+  kable(normTable, escape = F, align = c("c", "l", "l")) %>%
+  kable_styling(full_width = F)
+```
+## Negative Probe Normalization
+
+Step 1. Check
+
+```{r, echo = FALSE, eval = FALSE}
+ # Check for ProbePool, codeclass in phenoData
+  cols_check <- c("ProbePool", "CodeClass", "TargetGUID")
+  if(!all(cols_check %in% colnames(targetAnnotations))) {
+    stop("Error: Required target annotation columns missing.")
+  }
+  if(any(is.na(targetAnnotations[["ProbePool"]]))) {
+    stop("Error: Missing ProbePool designations. Make sure this is NGS RNA data.")
+  }
+  pools <- unique(targetAnnotations[["ProbePool"]])
+  pool_neg_norm <- lapply(pools, 
+    function(pool) {
+      # Get pool and corresponding target counts
+      pool_neg <- 
+        targetAnnotations[targetAnnotations[["CodeClass"]] == "Negative" & 
+                            targetAnnotations[["ProbePool"]] == pool, "TargetGUID"]
+      if(length(pool_neg) < 1) {
+        stop(paste0("Error: No negative could be located for probe pool ", 
+                      pool, "."))
+      }
+      if(length(pool_neg) > 1) {
+        stop(paste0("Error: More than one negative was located for probe pool ", 
+                      pool, "."))
+      }
+      pool_targets <- 
+        targetAnnotations[targetAnnotations[["ProbePool"]] == pool, "TargetGUID"]
+
+      # Calculate normalization factor and normalized counts
+      pool_neg_factors <- 
+        unlist(dataset[pool_neg, ] / 
+                 exp(mean(log(as.numeric(dataset[pool_neg, ])))))
+      pool_counts <-
+        as.matrix(dataset[pool_targets, ]) %*% diag(1 / pool_neg_factors)
+   })
+
+  #Collapse data back into one data frame
+  neg_norm_df <- data.frame(do.call(rbind, pool_neg_norm))
+  colnames(neg_norm_df) <- colnames(dataset)
+  neg_norm_df <- neg_norm_df[rownames(dataset), ]
+  return(neg_norm_df)
+```
+
+## Housekeeping Normalization
+
+Step 1. Get the geomean of housekeeper genes identified
+```{r, echo = FALSE}
+housekeepers <- c('C1orf43','GPI','OAZ1','POLR2A','PSMB2','RAB7A',
+                    'SDHA','SNRPD3','TBC1D10B','TPM4','TUBB','UBB')
+
+```
+
+Step 2.Calculate the Geometric Mean of all quantiles across all samples
+
+Step 3 Get the ratio of each sample houskeeping count and the computed geomean for each sample. This is the housekeeping normalization factor. 
+
+Step 4. Multiply each count to the computed sample housekeeping normalization factor
+Raw Counts
+
 
 ```{r}
 sessionInfo()
