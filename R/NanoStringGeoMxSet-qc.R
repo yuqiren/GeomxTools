@@ -1,8 +1,7 @@
 DEFAULTS <- list(minSaturation=0.7, minReads=10000, minProbeRatio=0.1, 
     minimumCount=10, localOutlierAlpha=0.01, globalOutlierRatio=0.2, 
-    loqCutoff=1.0, highCountCutoff=10000)
+    loqMultiplier=2.0, loqCutoff=0.7, highCountCutoff=10000)
 
-#NEO to fix the rox comments with new stuff
 #' Add QC flags to feature or protocol data
 #' 
 #' @param object name of the object class to perform QC on
@@ -20,12 +19,10 @@ DEFAULTS <- list(minSaturation=0.7, minReads=10000, minProbeRatio=0.1,
 #' 
 #' @examples
 #' 
-#NEO set default cutoffs as in DA and make sure set to NULL and check for NULL if not a normal DA cutoff
 setMethod("setQCFlags",
     signature(object="NanoStringGeoMxSet"),
     function(object, qcCutoffs=DEFAULTS, ...) {
         qcCutoffs <- checkCutoffs(qcCutoffs)
-        #NEO to add featureType accessor to the class plus validation
         object <- setAOIFlags(object=object, qcCutoffs=qcCutoffs)
         if (featureType(object) == "Probe") {
             object <- setProbeFlags(object=object, qcCutoffs=qcCutoffs)
@@ -37,7 +34,6 @@ setMethod("setQCFlags",
         return(object)
 })
 
-#NEO these should match the default calls in DA
 setAOIFlags <- function(object, qcCutoffs=DEFAULTS) {
     object <- setSaturationFlags(object=object, 
         cutoff=qcCutoffs[["minSaturation"]])
@@ -58,16 +54,15 @@ setProbeFlags <- function(object, qcCutoffs=DEFAULTS) {
     return(object)
 }
 
-#NEO make sure that when collapsed count occurs feature data QCFlags is removed
 setTargetFlags <- function(object, qcCutoffs=DEFAULTS) {
     object <- 
-        setLOQFlags(object=object, cutoff=qcCutoffs[["loqCutoff"]])
+        setLOQFlags(object=object, multiplier=DEFAULTS[["loqMultiplier"]], 
+            cutoff=qcCutoffs[["loqCutoff"]])
     object <- 
         setHighCountFlags(object=object, cutoff=qcCutoffs[["highCountCutoff"]])
     return(object)
 }
 
-#NEO these are exported so advanced users can use filters not part of default DA pipeline
 setSaturationFlags <- function(object, cutoff=DEFAULTS[["minSaturation"]]) {
     percentUnique <- 
         sData(object)["DeduplicatedReads"] / sData(object)["Aligned"]
@@ -111,10 +106,6 @@ setProbeCountFlags <-
         return(object)
     }
 
-#NEO
-#time-wise does it makes sense to bypass anything with min flag
-#Yes can add and just match back by subsetting by true and and then marking by RTS
-#Update append to detect if less rows than object and match to flags and RTS
 setLocalFlags <- 
     function(object=object, cutoff=DEFAULTS[["localOutlierAlpha"]]) {
         #if ("LowProbeCount" %in% names(fData(object)[["QCFlags"]])) {
@@ -163,14 +154,18 @@ setGlobalFlags <-
     }
 
 setLOQFlags <- 
-    function(object=object, cutoff=DEFAULTS[["loqCutoff"]]) {
-        #NEO need negative values for LOQ
+    function(object=object, multiplier=DEFAULTS[["loqMultiplier"]], cutoff=DEFAULTS[["loqCutoff"]]) {
         if (featureType(object) == "Target") {
-            negativeObject <- negativeControlSubset(object)
-            LOQs <- esApply(negativeObject, MARGIN=2, FUN=function(x) {
-                ngeoMean(x) * ngeoSD(x) ^ cutoff})
-            LOQFlags <- esApply(object, MARGIN=1, FUN=function(x) {
-                x > LOQs})
+            LOQs <- 
+                pData(object)[, "NegGeoMean", drop=FALSE] * 
+                pData(object)[, "NegGeoSD", drop=FALSE] ^ multiplier
+            pData(object)[, "LOQ"] <- LOQs
+            targetFlags <- t(esApply(object, MARGIN=1, FUN=function(x) {
+                return(x < LOQs[sampleNames(object), ])}))
+            LOQFlags <- as.data.frame(apply(targetFlags, 1, 
+                function(x) {return(mean(x) > cutoff)}))
+            colnames(LOQFlags) <- "LOQFlags"
+            LOQFlags <- LOQFlags[featureNames(object), , drop=FALSE]
             object <- appendFeatureFlags(object, LOQFlags)
         } else {
             warning(paste("Incorrect feature type.",
@@ -207,16 +202,6 @@ appendFeatureFlags <- function(object, currFlags) {
     return(object)
 }
 
-# grubbs.flag
-# helper function to remove outliers using Grubbs' test given the controlled type I error alpha
-# modified from https://stackoverflow.com/questions/22837099/how-to-repeat-the-grubbs-test-and-flag-the-outliers
-# INPUT
-#   x = named vector
-#   alpha = indicator of the expected Type I erorr frequency
-#   logt = boolean to log 10 transform data prior to outlier test
-#   min_count = integer of minimum expected counts for testing
-# OUTPUT
-#   vector of TRUE / FALSE For flagged or not flagged
 grubbsFlag <- function(countDT, alpha=0.01) {
     if (dim(countDT)[1] < 3 | all(countDT[, Count] == countDT[1][, Count])) {
         return(countDT)
@@ -232,9 +217,4 @@ grubbsFlag <- function(countDT, alpha=0.01) {
         return(countDT)
     }
     return(countDT)
-}
-
-
-removeFlagProbes <- function(object, removeFlagCols=NULL) {
-    
 }
