@@ -8,11 +8,6 @@ DEFAULTS <- list(minSaturation=0.7, minReads=10000, minProbeRatio=0.1,
 #' \enumerate{
 #'     \item{NanoStringGeoMxSet, use the NanoStringGeoMxSet class}
 #' }
-#' @param dataDim the dimension of the object to QC on
-#' \enumerate{
-#'     \item{sample, QC data on the AOI level}
-#'     \item{feature, QC data on probe or target level}
-#' }
 #' @param qcCutoffs list of cutoffs and thresholds to use for QC
 #' 
 #' @return the object that QC was performed on
@@ -27,7 +22,7 @@ setMethod("setQCFlags",
         if (featureType(object) == "Probe") {
             object <- setProbeFlags(object=object, qcCutoffs=qcCutoffs)
         } else if (featureType(object) == "Target") {
-        #   object <- setTargetFlags(object=object, qcCutoffs=qcCutoffs)
+            object <- setTargetFlags(object=object, qcCutoffs=qcCutoffs)
         } else {
             valid(Object(x))
         }
@@ -58,8 +53,8 @@ setTargetFlags <- function(object, qcCutoffs=DEFAULTS) {
     object <- 
         setLOQFlags(object=object, multiplier=DEFAULTS[["loqMultiplier"]], 
             cutoff=qcCutoffs[["loqCutoff"]])
-    object <- 
-        setHighCountFlags(object=object, cutoff=qcCutoffs[["highCountCutoff"]])
+    #object <- 
+    #    setHighCountFlags(object=object, cutoff=qcCutoffs[["highCountCutoff"]])
     return(object)
 }
 
@@ -173,6 +168,10 @@ setLOQFlags <-
         }
         return(object)
     }
+
+setHighCountFlags <- 
+    function(object, cutoff=qcCutoffs[["highCountCutoff"]]) {
+}
 
 checkCutoffs <- function(qcCutoffs) {
     if (!all(names(DEFAULTS) %in% names(qcCutoffs))) {
