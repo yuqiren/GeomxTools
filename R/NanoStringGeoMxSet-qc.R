@@ -71,8 +71,10 @@ setTargetFlags <- function(object, qcCutoffs=DEFAULTS) {
 setSaturationFlags <- function(object, cutoff=DEFAULTS[["minSaturation"]]) {
     percentUnique <- 
         sData(object)["DeduplicatedReads"] / sData(object)["Aligned"]
+    colnames(percentUnique) <- "SequencingSaturation"
+    protocolData(object)[["SequencingSaturation"]] <- 
+        round(100 * percentUnique[["SequencingSaturation"]], 2)
     percentUnique <- percentUnique > cutoff
-    colnames(percentUnique) <- "Saturation"
     object<- appendSampleFlags(object, percentUnique)
     return(object)
 }
