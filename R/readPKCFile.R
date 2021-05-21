@@ -13,6 +13,9 @@ function(file)
   # create negative column 
   rtsid_lookup_df$Negative <- grepl("Negative", rtsid_lookup_df$CodeClass)
   rtsid_lookup_df$RTS_ID <- gsub("RNA", "RTS00", rtsid_lookup_df[["RTS_ID"]])
+  if (grepl("DSP_", rtsid_lookup_df$RTS_ID[1])) {
+    colnames(rtsid_lookup_df)[colnames(rtsid_lookup_df) == "RTS_ID"] <- "DSP_ID"
+  }
   # Coerce output to DataFrame
   rtsid_lookup_df <- S4Vectors::DataFrame(rtsid_lookup_df)
   
@@ -45,10 +48,19 @@ generate_pkc_lookup <- function(jsons_vec) {
       curr_targ <- targ[["DisplayName"]]
       curr_code_class <- gsub("\\d+$", "", targ[["CodeClass"]])
       for (prb in targ[["Probes"]]) {
-        curr_RTS_ID <- prb$RTS_ID
         curr_probe_ID <- prb$ProbeID
-        lookup_df[nrow(lookup_df) + 1, ] <- 
-          list(curr_RTS_ID, curr_targ, curr_module, curr_code_class, curr_probe_ID)
+        if (!is.null(prb$RTS_ID)) {
+          curr_RTS_ID <- prb$RTS_ID
+          lookup_df[nrow(lookup_df) + 1, ] <- 
+            list(curr_RTS_ID, curr_targ, curr_module, curr_code_class, curr_probe_ID)
+        } else if (!is.null(targ$DSP_ID)) {
+          for (curr_DSP_ID in targ[["DSP_ID"]]) {
+            lookup_df[nrow(lookup_df) + 1, ] <- 
+              list(curr_DSP_ID, curr_targ, curr_module, curr_code_class, curr_probe_ID)
+          }
+        } else {
+          stop("Missing IDs; pkc file format unknown")
+        }
       }
     }
   }
