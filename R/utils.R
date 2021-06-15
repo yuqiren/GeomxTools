@@ -118,11 +118,47 @@ countsShiftedByOne <- function(object) {
     return(experimentData(object)@other$shiftedByOne)
 }
 
-#NEO rewrite in data.tables for speed
+#' Collapse counts based on TargetName and Module
+#' 
+#' @param object name of the NanoStringGeoMxSet object
+#' 
+#' @return object of \code{NanoStringGeoMxSet} class with
+#' targets as feature type
+#' 
+#' @examples
+#' datadir <- system.file("extdata", "DSP_NGS_Example_Data",
+#'                        package="GeomxTools")
+#' demoData <- readRDS(file.path(datadir, "/demoData.rds"))
+#' targetDemoData <- collapseCounts(demoData)
+#' 
+#' @export
+#' 
 collapseCounts <- function(object) {
-    probeCounts <- cbind(fData(object)[, c("TargetName", "Module")], 
-        assayDataElement(object, elt="exprs"))
-    collapsedCounts <- aggregate(formula=. ~ TargetName + Module, 
-        data=probeCounts, FUN=ngeoMean)
+    multiProbeTable <- with(object, table(TargetName, Module)) > 1L
+    indices <- which(multiProbeTable, arr.ind=TRUE)
+    if (length(indices) != dim(multiProbeTable)[1L]) {
+        targs <- rownames(multiProbeTable)[as.vector(indices[, "TargetName"])]
+        mods <- colnames(multiProbeTable)[as.vector(indices[, "Module"])]
+        multiProbeList <- 
+            unlist(lapply(seq_along(targs), function(x){
+                featureNames(subset(object, 
+                    subset=TargetName == targs[x] & Module == mods[x]))
+            }))
+        multiObject <- object[multiProbeList, ]
+        multiProbeCounts <- 
+            munge(multiObject, mapping= exprs ~ TargetName + Module)
+        collapsedCounts <- 
+            aggregate(formula=exprs ~ SampleName + TargetName + Module, 
+                      data=multiProbeCounts, 
+                      FUN=ngeoMean)
+        singleObject <- object[!featureNames(object) %in% multiProbeList, ]
+        singleProbeCounts <- 
+            munge(singleObject, mapping= exprs ~ TargetName + Module)
+        singleProbeCounts
+    } else {
+        multiObject <- object
+    }
+
+   
     return(collapsedCounts)
 }
